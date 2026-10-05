@@ -1,0 +1,122 @@
+name: Update VPN Servers
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-vpn-servers
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ==========================================================
+      # CHECKOUT
+      # ==========================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ==========================================================
+      # SETUP PYTHON
+      # ==========================================================
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # ==========================================================
+      # INSTALL DEPENDENCIES
+      # ==========================================================
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      # ==========================================================
+      # RUN VPN UPDATE
+      # ==========================================================
+
+      - name: Update VPN JSON files
+        run: |
+          python update_vpn.py
+
+      # ==========================================================
+      # VALIDATE JSON FILES
+      # ==========================================================
+
+      - name: Validate JSON files
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          files = ["tcp.json", "udp.json", "all.json"]
+
+          for filename in files:
+              if not os.path.exists(filename):
+                  raise SystemExit(f"ERROR: {filename} was not created")
+
+              if os.path.getsize(filename) == 0:
+                  raise SystemExit(f"ERROR: {filename} is empty")
+
+              with open(filename, "r", encoding="utf-8") as f:
+                  data = json.load(f)
+
+              if not isinstance(data, list):
+                  raise SystemExit(
+                      f"ERROR: {filename} does not contain a JSON array"
+                  )
+
+              print(f"{filename}: {len(data)} servers")
+
+          print("All JSON files are valid.")
+
+          PY
+
+      # ==========================================================
+      # SHOW CHANGES
+      # ==========================================================
+
+      - name: Check changes
+        run: |
+          git status --short
+          git diff --stat
+
+      # ==========================================================
+      # COMMIT CHANGES
+      # ==========================================================
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add tcp.json udp.json all.json
+
+          if git diff --cached --quiet; then
+            echo "No changes detected."
+          else
+            git commit -m "Update VPN servers"
+          fi
+
+      # ==========================================================
+      # PUSH
+      # ==========================================================
+
+      - name: Push changes
+        run: |
+          git push
